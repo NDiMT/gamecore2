@@ -9,20 +9,26 @@
   // Host broadcasts state through Net.
   game.broadcastFn = (msg) => net.broadcast(msg);
 
-  // Any state change triggers a re-render.
+  // Re-render on every state change.
   game.subscribe(() => ui.render());
 
-  // Network status toasts for the user.
+  // Status toasts.
   net.onStatus = (status) => {
-    if (status === 'connected') window.U.toast('Συνδέθηκε!');
-    else if (status === 'disconnected') window.U.toast('Αποσυνδέθηκε.');
+    if (status === 'connected') window.U.toast('Connected!');
+    else if (status === 'disconnected') window.U.toast('Disconnected.');
   };
+
+  // Expose for the renderer (it queries net.mode for control checks) and
+  // for debugging from a remote inspector on mobile.
+  window.NET = net;
+  window.GAME = game;
+  window.UI_ = ui;
+
+  // Keep the canvas crisp on viewport changes.
+  window.addEventListener('resize', () => {
+    if (ui.renderer) ui.renderer.resize();
+  });
 
   // First paint.
   ui.render();
-
-  // Expose for debugging in mobile remote-inspect.
-  window.GAME = game;
-  window.NET = net;
-  window.UI_ = ui;
 })();

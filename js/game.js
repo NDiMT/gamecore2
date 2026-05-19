@@ -4,26 +4,26 @@
 (function () {
   'use strict';
   const { CLASSES, CLASS_LIST, ENEMIES, ENCOUNTERS, BOSS_ENCOUNTER, ITEMS } = window.DATA;
-  const { rand, pick, rollDie, clamp, shuffle, deepClone } = window.U;
+  const { rand, pick, rollDie, shuffle, deepClone } = window.U;
 
-  const MAP_W = 6;
-  const MAP_H = 6;
+  const MAP_W = 14;
+  const MAP_H = 10;
   const POTION_HEAL = 14;
   const BOMB_DAMAGE = 6;
   const FLEE_CHANCE = 0.55;
 
   class Game {
     constructor() {
-      this.isHost = true;          // set by Net layer
-      this.myId = 'p0';            // host = p0; assigned by Net when joining
+      this.isHost = true;
+      this.myId = 'p0';
       this.state = this._initialState();
       this.listeners = [];
-      this.broadcastFn = null;     // host broadcasts; injected by main.js
+      this.broadcastFn = null;
     }
 
     _initialState() {
       return {
-        phase: 'menu',             // menu | host-setup | join-setup | lobby | class-select | overworld | combat | event | victory | gameover
+        phase: 'menu',
         players: [],
         hostId: 'p0',
         map: null,
@@ -33,26 +33,19 @@
         combat: null,
         event: null,
         log: [],
-        lastRoll: null            // animation hint
+        lastRoll: null
       };
     }
 
-    // --- subscription / mutation -------------------------------------------
     subscribe(fn) { this.listeners.push(fn); }
     _changed() { for (const fn of this.listeners) fn(); }
 
-    // Replace local state (used by clients receiving a snapshot from host).
     setState(s) {
       this.state = s;
       this._changed();
     }
-
-    // Broadcast the current state to all peers (host only).
     _broadcastState() {
       if (this.broadcastFn) this.broadcastFn({ t: 'state', s: this.state });
-    }
-    _broadcastEvent(ev) {
-      if (this.broadcastFn) this.broadcastFn({ t: 'event', ev });
     }
 
     _log(msg) {
@@ -63,7 +56,7 @@
     // --- lobby management (host-side) --------------------------------------
     hostAddSelf(name) {
       this.state.players = [{
-        id: 'p0', name: name || 'Ήρωας 1', isHost: true,
+        id: 'p0', name: name || 'Hero 1', isHost: true, isLocal: true,
         classId: null, ready: false,
         hp: 0, maxHp: 0, gold: 0, items: [], alive: true
       }];
@@ -71,7 +64,6 @@
       this._changed();
     }
     hostAddRemote(name) {
-      // Pick first free pX id (p1, p2, …) so removed slots can be reused.
       const used = new Set(this.state.players.map(p => p.id));
       let id = null;
       for (let i = 1; i < 8; i++) {
@@ -79,12 +71,12 @@
       }
       if (!id) return null;
       const p = {
-        id, name: name || ('Ήρωας ' + (this.state.players.length + 1)), isHost: false,
+        id, name: name || ('Hero ' + (this.state.players.length + 1)), isHost: false, isLocal: false,
         classId: null, ready: false,
         hp: 0, maxHp: 0, gold: 0, items: [], alive: true
       };
       this.state.players.push(p);
-      this._log(`Ο ${p.name} συνδέθηκε.`);
+      this._log(`${p.name} joined.`);
       this._broadcastState();
       this._changed();
       return id;
@@ -93,37 +85,33 @@
       const p = this.state.players.find(x => x.id === id);
       if (!p) return;
       this.state.players = this.state.players.filter(x => x.id !== id);
-      this._log(`Ο ${p.name} αποσυνδέθηκε.`);
+      this._log(`${p.name} disconnected.`);
       this._broadcastState();
       this._changed();
     }
 
-    // --- entrypoint: an action came in from a player -----------------------
-    // Host validates and applies; clients should never call this directly.
     applyAction(action, fromId) {
-      if (!this.isHost) return; // safety
+      if (!this.isHost) return;
       const p = this.state.players.find(x => x.id === fromId);
       if (!p) return;
 
       switch (action.type) {
-        case 'setName':     this._actSetName(p, action); break;
-        case 'pickClass':   this._actPickClass(p, action); break;
-        case 'classReady':  this._actClassReady(p); break;
-        case 'startAdventure': if (p.isHost) this._actStartAdventure(); break;
-        case 'move':        this._actMove(p, action); break;
+        case 'setName':            this._actSetName(p, action); break;
+        case 'pickClass':          this._actPickClass(p, action); break;
+        case 'classReady':         this._actClassReady(p); break;
+        case 'startAdventure':     if (p.isHost) this._actStartAdventure(); break;
+        case 'move':               this._actMove(p, action); break;
         case 'usePotionOverworld': this._actUsePotionOverworld(p); break;
-        case 'attack':      this._actAttack(p, action); break;
-        case 'useItem':     this._actUseItem(p, action); break;
-        case 'flee':        this._actFlee(p); break;
-        case 'eventChoice': this._actEventChoice(p, action); break;
-        case 'eventDismiss': this._actEventDismiss(p); break;
-        case 'restartFromMenu': if (p.isHost) this._actRestart(); break;
+        case 'attack':             this._actAttack(p, action); break;
+        case 'useItem':            this._actUseItem(p, action); break;
+        case 'flee':               this._actFlee(p); break;
+        case 'eventDismiss':       this._actEventDismiss(p); break;
+        case 'restartFromMenu':    if (p.isHost) this._actRestart(); break;
       }
       this._broadcastState();
       this._changed();
     }
 
-    // --- lobby actions -----------------------------------------------------
     _actSetName(p, action) {
       if (typeof action.name === 'string' && action.name.trim()) {
         p.name = action.name.trim().slice(0, 16);
@@ -133,7 +121,6 @@
       if (this.state.phase !== 'class-select') return;
       const cid = action.classId;
       if (!CLASSES[cid]) return;
-      // No two players may share a class.
       if (this.state.players.some(o => o !== p && o.classId === cid)) return;
       p.classId = cid;
       p.ready = false;
@@ -142,12 +129,10 @@
       if (this.state.phase !== 'class-select') return;
       if (!p.classId) return;
       p.ready = true;
-      // Apply class stats now.
       const c = CLASSES[p.classId];
       p.maxHp = c.maxHp;
       p.hp = c.maxHp;
       p.items = deepClone(c.startItems || []);
-      // Auto-start when all players ready and at least one is ready.
       if (this.state.players.every(o => o.classId && o.ready)) {
         this._actStartAdventure();
       }
@@ -164,49 +149,134 @@
         o.gold = 0;
       }
       this.state.map = this._generateMap();
-      this.state.party = { x: 0, y: 0 };
+      // Start at a walkable corner.
+      const start = this._findStart();
+      this.state.party = { x: start.x, y: start.y };
+      this.state.map.tiles[start.y * MAP_W + start.x].discovered = true;
+      this.state.map.tiles[start.y * MAP_W + start.x].cleared = true;
       this.state.activeIdx = 0;
       this.state.round = 1;
       this.state.phase = 'overworld';
-      this._log('Η αναζήτηση ξεκινά!');
+      this._log('The quest begins!');
     }
 
     // --- map generation ----------------------------------------------------
     _generateMap() {
       const tiles = [];
-      const total = MAP_W * MAP_H;
-      // Fill non-corner tiles with a weighted mix, then shuffle.
-      const fillerTypes = [];
-      const otherCount = total - 2; // minus start + boss
-      // Guarantee at least 2 villages for healing.
-      fillerTypes.push('village', 'village');
-      for (let i = 0; i < otherCount - 2; i++) {
-        const r = Math.random();
-        if (r < 0.45)      fillerTypes.push('combat');
-        else if (r < 0.65) fillerTypes.push('treasure');
-        else if (r < 0.75) fillerTypes.push('village');
-        else               fillerTypes.push('empty');
+      // Step 1: assign base terrain via 2-pass noise.
+      const noise = new Array(MAP_W * MAP_H);
+      for (let i = 0; i < noise.length; i++) noise[i] = Math.random();
+      // Smooth so terrain forms patches.
+      const smoothed = noise.slice();
+      for (let pass = 0; pass < 2; pass++) {
+        for (let y = 0; y < MAP_H; y++) {
+          for (let x = 0; x < MAP_W; x++) {
+            let s = 0, n = 0;
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
+                s += smoothed[ny * MAP_W + nx];
+                n += 1;
+              }
+            }
+            noise[y * MAP_W + x] = s / n;
+          }
+        }
+        for (let i = 0; i < noise.length; i++) smoothed[i] = noise[i];
       }
-      const mixed = shuffle(fillerTypes);
 
-      let fi = 0;
+      // Step 2: thresholds → terrain.
+      const terrainAt = (x, y) => {
+        const v = smoothed[y * MAP_W + x];
+        if (v < 0.32) return 'water';
+        if (v < 0.40) return 'sand';
+        if (v < 0.58) return 'grass';
+        if (v < 0.72) return 'forest';
+        return 'hills';
+      };
       for (let y = 0; y < MAP_H; y++) {
         for (let x = 0; x < MAP_W; x++) {
-          let t;
-          if (x === 0 && y === 0) t = { type: 'start',   discovered: true,  cleared: true };
-          else if (x === MAP_W - 1 && y === MAP_H - 1) t = { type: 'boss', discovered: false, cleared: false };
-          else {
-            const type = mixed[fi++];
-            t = { type, discovered: false, cleared: false };
-            if (type === 'combat') t.enemies = pick(ENCOUNTERS);
-            if (type === 'treasure') t.loot = { gold: 5 + rand(8), item: Math.random() < 0.5 ? 'potion' : (Math.random() < 0.5 ? 'bomb' : null) };
-          }
-          tiles.push(t);
+          tiles.push({
+            terrain: terrainAt(x, y),
+            feature: null,
+            discovered: false,
+            cleared: false,
+            enemies: null,
+            loot: null
+          });
         }
       }
+
+      // Step 3: ensure boss tile (top-right area) is a lair, on walkable ground.
+      const bossX = MAP_W - 2, bossY = 1;
+      tiles[bossY * MAP_W + bossX] = {
+        terrain: 'hills', feature: 'lair', discovered: false, cleared: false, enemies: null, loot: null
+      };
+
+      // Step 4: ensure start area (bottom-left) walkable. Replace water with sand.
+      for (let y = MAP_H - 3; y < MAP_H; y++) {
+        for (let x = 0; x < 3; x++) {
+          const t = tiles[y * MAP_W + x];
+          if (t.terrain === 'water') t.terrain = 'sand';
+        }
+      }
+
+      // Step 5: sprinkle features and combat encounters.
+      const featurePool = [];
+      // Aim for some villages + treasure + ruins.
+      for (let i = 0; i < 3; i++) featurePool.push('village');
+      for (let i = 0; i < 5; i++) featurePool.push('chest');
+      for (let i = 0; i < 3; i++) featurePool.push('ruins');
+
+      const placeFeature = (f) => {
+        for (let tries = 0; tries < 60; tries++) {
+          const x = rand(MAP_W);
+          const y = rand(MAP_H);
+          const t = tiles[y * MAP_W + x];
+          if (t.feature || t.terrain === 'water' || (x === bossX && y === bossY)) continue;
+          // Keep away from start corner.
+          if (x < 2 && y > MAP_H - 3) continue;
+          t.feature = f;
+          if (f === 'chest') t.loot = { gold: 6 + rand(10), item: Math.random() < 0.6 ? 'potion' : (Math.random() < 0.5 ? 'bomb' : null) };
+          return true;
+        }
+        return false;
+      };
+      for (const f of featurePool) placeFeature(f);
+
+      // Step 6: place combat encounters on ~20% of remaining walkable tiles.
+      const walkableTiles = [];
+      for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) {
+          const t = tiles[y * MAP_W + x];
+          if (t.terrain === 'water') continue;
+          if (t.feature) continue;
+          if (x < 2 && y > MAP_H - 3) continue;
+          if (x === bossX && y === bossY) continue;
+          walkableTiles.push([x, y]);
+        }
+      }
+      shuffle(walkableTiles);
+      const combatCount = Math.floor(walkableTiles.length * 0.22);
+      for (let i = 0; i < combatCount; i++) {
+        const [x, y] = walkableTiles[i];
+        tiles[y * MAP_W + x].enemies = pick(ENCOUNTERS);
+      }
+
       return { w: MAP_W, h: MAP_H, tiles };
     }
+    _findStart() {
+      for (let y = MAP_H - 1; y >= 0; y--) {
+        for (let x = 0; x < MAP_W; x++) {
+          const t = this.state.map.tiles[y * MAP_W + x];
+          if (t.terrain !== 'water' && !t.feature && !t.enemies) return { x, y };
+        }
+      }
+      return { x: 0, y: MAP_H - 1 };
+    }
     _tileAt(x, y) {
+      if (!this.state.map) return null;
       if (x < 0 || y < 0 || x >= this.state.map.w || y >= this.state.map.h) return null;
       return this.state.map.tiles[y * this.state.map.w + x];
     }
@@ -214,9 +284,6 @@
     // --- overworld ---------------------------------------------------------
     _activePlayer() {
       return this.state.players[this.state.activeIdx];
-    }
-    _isAliveAny() {
-      return this.state.players.some(p => p.alive && p.hp > 0);
     }
     _nextActive() {
       const n = this.state.players.length;
@@ -230,7 +297,6 @@
           return;
         }
       }
-      // No-one alive — defeat handled elsewhere.
     }
     _actMove(p, action) {
       if (this.state.phase !== 'overworld') return;
@@ -238,45 +304,69 @@
       const { x, y } = action;
       const dx = Math.abs(x - this.state.party.x);
       const dy = Math.abs(y - this.state.party.y);
-      if (dx + dy !== 1) return;            // only orthogonal neighbours
+      if (dx + dy !== 1) return;
       const tile = this._tileAt(x, y);
       if (!tile) return;
+      if (tile.terrain === 'water') return; // impassable
 
       this.state.party = { x, y };
       tile.discovered = true;
       this._log(`${p.name} → (${x},${y})`);
 
-      // Resolve tile content if not yet cleared.
+      // Resolve content if not cleared yet.
       if (!tile.cleared) {
-        switch (tile.type) {
-          case 'combat':
-            this._startCombat(tile, false);
-            return; // phase changed, don't advance turn
-          case 'boss':
-            this._startCombat(tile, true);
-            return;
-          case 'village':
-            this._enterEvent({
-              kind: 'village',
-              title: 'Χωριό',
-              text: 'Φιλόξενοι χωρικοί προσφέρουν ξεκούραση. Όλη η ομάδα ανακτά πλήρη υγεία.',
-              effect: { healAll: true }
-            });
-            tile.cleared = true;
-            return;
-          case 'treasure':
-            this._enterEvent({
-              kind: 'treasure',
-              title: 'Θησαυρός!',
-              text: `Βρήκατε ${tile.loot.gold} χρυσά${tile.loot.item ? ` και ${ITEMS[tile.loot.item].icon} ${ITEMS[tile.loot.item].name}!` : '.'}`,
-              effect: { gold: tile.loot.gold, item: tile.loot.item }
-            });
-            tile.cleared = true;
-            return;
-          case 'empty':
-            tile.cleared = true;
-            break;
+        if (tile.feature === 'lair') {
+          this._startCombat(tile, true);
+          return;
         }
+        if (tile.enemies) {
+          this._startCombat(tile, false);
+          return;
+        }
+        if (tile.feature === 'village') {
+          this._enterEvent({
+            kind: 'village',
+            title: 'Village',
+            text: 'Friendly villagers welcome the party. Everyone rests and recovers to full health.',
+            effect: { healAll: true }
+          });
+          tile.cleared = true;
+          return;
+        }
+        if (tile.feature === 'chest') {
+          const loot = tile.loot || { gold: 5, item: null };
+          this._enterEvent({
+            kind: 'chest',
+            title: 'Treasure!',
+            text: `You found ${loot.gold} gold` + (loot.item ? ` and a ${ITEMS[loot.item].name} ${ITEMS[loot.item].icon}.` : '.'),
+            effect: { gold: loot.gold, item: loot.item }
+          });
+          tile.cleared = true;
+          return;
+        }
+        if (tile.feature === 'ruins') {
+          // Ruins: small treasure or trap.
+          if (Math.random() < 0.5) {
+            const gold = 3 + rand(6);
+            this._enterEvent({
+              kind: 'ruins',
+              title: 'Ancient Ruins',
+              text: `You scavenge ${gold} gold among the stones.`,
+              effect: { gold }
+            });
+          } else {
+            // Trap — small damage.
+            this._enterEvent({
+              kind: 'ruins',
+              title: 'Ancient Ruins',
+              text: 'A trap! The active hero takes 4 damage.',
+              effect: { damage: 4 }
+            });
+          }
+          tile.cleared = true;
+          return;
+        }
+        tile.cleared = true;
       }
       this._nextActive();
     }
@@ -290,11 +380,11 @@
       p.items = p.items.filter(i => i.count > 0);
       const heal = Math.min(POTION_HEAL, p.maxHp - p.hp);
       p.hp += heal;
-      this._log(`${p.name} πίνει φίλτρο (+${heal} HP).`);
+      this._log(`${p.name} drinks a potion (+${heal} HP).`);
       this._nextActive();
     }
 
-    // --- events (village / treasure) ---------------------------------------
+    // --- events -----------------------------------------------------------
     _enterEvent(ev) {
       this.state.event = ev;
       this.state.phase = 'event';
@@ -306,28 +396,38 @@
       if (ev.effect) {
         if (ev.effect.healAll) {
           for (const o of this.state.players) {
-            if (o.alive) { o.hp = o.maxHp; }
+            if (o.alive) o.hp = o.maxHp;
           }
-          this._log('Η ομάδα θεραπεύεται πλήρως.');
+          this._log('The party is fully healed.');
         }
         if (ev.effect.gold) {
           const ap = this._activePlayer();
           ap.gold += ev.effect.gold;
-          this._log(`${ap.name} +${ev.effect.gold} χρυσά.`);
+          this._log(`${ap.name} +${ev.effect.gold} gold.`);
         }
         if (ev.effect.item) {
           const ap = this._activePlayer();
           const existing = ap.items.find(i => i.type === ev.effect.item);
           if (existing) existing.count += 1;
           else ap.items.push({ type: ev.effect.item, count: 1 });
-          this._log(`${ap.name} παίρνει ${ITEMS[ev.effect.item].name}.`);
+          this._log(`${ap.name} picks up ${ITEMS[ev.effect.item].name}.`);
+        }
+        if (ev.effect.damage) {
+          const ap = this._activePlayer();
+          ap.hp -= ev.effect.damage;
+          if (ap.hp <= 0) { ap.hp = 0; ap.alive = false; this._log(`${ap.name} died!`); }
+          else this._log(`${ap.name} takes ${ev.effect.damage} damage.`);
         }
       }
       this.state.event = null;
       this.state.phase = 'overworld';
+      // If everyone died from a trap, game over.
+      if (!this._alivePlayers().length) {
+        this.state.phase = 'gameover';
+        return;
+      }
       this._nextActive();
     }
-    _actEventChoice(/*p, action*/) { /* reserved for branching events */ }
 
     // --- combat ------------------------------------------------------------
     _startCombat(tile, isBoss) {
@@ -339,7 +439,6 @@
       this.state.combat = {
         enemies,
         isBoss,
-        // Explicit per-round queue: indexes still to act this round.
         turn: { side: 'players', idx: -1 },
         playerQueue: [],
         enemyQueue: [],
@@ -349,7 +448,7 @@
       this.state.phase = 'combat';
       this.state.lastRoll = null;
       this._beginPlayersRound();
-      this._log(`Μάχη! ${enemies.map(e => e.icon + e.name).join(', ')}`);
+      this._log(`Battle! ${enemies.map(e => e.icon + e.name).join(', ')}`);
     }
     _beginPlayersRound() {
       const c = this.state.combat;
@@ -370,7 +469,6 @@
     }
     _takeNextPlayer() {
       const c = this.state.combat;
-      // Skip dead players in the queue.
       while (c.playerQueue.length) {
         const idx = c.playerQueue[0];
         const p = this.state.players[idx];
@@ -380,7 +478,6 @@
         }
         c.playerQueue.shift();
       }
-      // No more players this round → enemies act.
       this._beginEnemiesRound();
     }
     _takeNextEnemy() {
@@ -395,7 +492,6 @@
         }
         c.enemyQueue.shift();
       }
-      // Round over → players again.
       this._beginPlayersRound();
     }
     _activeCombatActor() {
@@ -407,16 +503,14 @@
     _alivePlayers() {
       return this.state.players.filter(p => p.alive && p.hp > 0);
     }
-
     _rollAttackDice(attacker) {
       const c = CLASSES[attacker.classId];
       const dice = [];
-      let hits = 0, dmg = 0, gotCrit = false;
+      let dmg = 0, gotCrit = false;
       for (let i = 0; i < c.dice; i++) {
         const v = rollDie();
         dice.push(v);
         if (v >= c.hitOn) {
-          hits += 1;
           dmg += c.dmgPerHit;
           if (v === c.crit) {
             dmg += c.critBonus;
@@ -424,9 +518,8 @@
           }
         }
       }
-      return { dice, hits, dmg, gotCrit };
+      return { dice, dmg, gotCrit };
     }
-
     _actAttack(p, action) {
       if (this.state.phase !== 'combat') return;
       const c = this.state.combat;
@@ -438,26 +531,24 @@
       const result = this._rollAttackDice(p);
       this.state.lastRoll = {
         actor: p.id, target: 'e' + target.idx,
-        dice: result.dice, hits: result.hits, dmg: result.dmg,
-        hitOn: CLASSES[p.classId].hitOn, crit: CLASSES[p.classId].crit
+        dice: result.dice, dmg: result.dmg,
+        hitOn: CLASSES[p.classId].hitOn, crit: CLASSES[p.classId].crit,
+        ts: Date.now()
       };
-
       const cls = CLASSES[p.classId];
       if (cls.aoeOnCrit && result.gotCrit) {
-        // Mage splash: deal base damage to all alive enemies.
         for (const e of c.enemies) {
           if (!e.alive) continue;
           const dealt = (e === target) ? result.dmg : Math.max(1, Math.floor(result.dmg / 2));
           e.hp -= dealt;
           if (e.hp <= 0) { e.hp = 0; e.alive = false; }
         }
-        this._log(`${p.name} ρίχνει ξόρκι! ${result.dmg} ζημιά + splash.`);
+        this._log(`${p.name} casts a spell! ${result.dmg} dmg + splash.`);
       } else {
         target.hp -= result.dmg;
         if (target.hp <= 0) { target.hp = 0; target.alive = false; }
-        this._log(`${p.name} χτυπά ${target.icon}${target.name} για ${result.dmg}.`);
+        this._log(`${p.name} hits ${target.icon}${target.name} for ${result.dmg}.`);
       }
-
       this._endCombatActorTurn();
     }
     _actUseItem(p, action) {
@@ -469,15 +560,16 @@
       if (action.itemType === 'potion') {
         const heal = Math.min(POTION_HEAL, p.maxHp - p.hp);
         p.hp += heal;
-        this._log(`${p.name} πίνει φίλτρο (+${heal} HP).`);
+        this._log(`${p.name} drinks a potion (+${heal} HP).`);
+        this.state.lastRoll = { actor: p.id, target: p.id, dice: [], dmg: 0, special: 'heal', ts: Date.now() };
       } else if (action.itemType === 'bomb') {
         for (const e of c.enemies) {
           if (!e.alive) continue;
           e.hp -= BOMB_DAMAGE;
           if (e.hp <= 0) { e.hp = 0; e.alive = false; }
         }
-        this._log(`${p.name} ρίχνει βόμβα! ${BOMB_DAMAGE} σε όλους.`);
-        this.state.lastRoll = { actor: p.id, target: 'all', dice: [], hits: 0, dmg: BOMB_DAMAGE, special: 'bomb' };
+        this._log(`${p.name} throws a bomb! ${BOMB_DAMAGE} to all.`);
+        this.state.lastRoll = { actor: p.id, target: 'all', dice: [], dmg: BOMB_DAMAGE, special: 'bomb', ts: Date.now() };
       }
       it.count -= 1;
       p.items = p.items.filter(i => i.count > 0);
@@ -488,29 +580,34 @@
       const c = this.state.combat;
       if (c.turn.side !== 'players' || this._activeCombatActor().id !== p.id) return;
       if (c.isBoss) {
-        this._log('Δεν μπορείτε να ξεφύγετε από τον δράκο!');
+        this._log("You can't flee from the dragon!");
         this._endCombatActorTurn();
         return;
       }
       if (Math.random() < FLEE_CHANCE) {
-        this._log(`${p.name} ξεφεύγει! Η ομάδα οπισθοχωρεί.`);
-        // End combat without clearing the tile.
+        this._log(`${p.name} flees! The party retreats.`);
         this.state.phase = 'overworld';
         this.state.combat = null;
         this.state.lastRoll = null;
-        // Retreat one tile back toward (0,0) along nearest axis.
         const px = this.state.party.x, py = this.state.party.y;
-        if (px > 0) this.state.party.x = px - 1;
-        else if (py > 0) this.state.party.y = py - 1;
+        // Retreat one walkable tile away from this tile.
+        const candidates = [[px-1,py],[px+1,py],[px,py-1],[px,py+1]]
+          .filter(([x,y]) => {
+            const t = this._tileAt(x, y);
+            return t && t.terrain !== 'water';
+          });
+        if (candidates.length) {
+          const [nx, ny] = candidates[0];
+          this.state.party = { x: nx, y: ny };
+        }
         this._nextActive();
       } else {
-        this._log(`${p.name} αποτυγχάνει να ξεφύγει.`);
+        this._log(`${p.name} fails to escape.`);
         this._endCombatActorTurn();
       }
     }
 
     _endCombatActorTurn() {
-      // Victory / defeat checks first.
       if (this._aliveEnemies().length === 0) { this._endCombatVictory(); return; }
       if (this._alivePlayers().length === 0) { this._endCombatDefeat(); return; }
       const c = this.state.combat;
@@ -523,13 +620,12 @@
       }
     }
     _scheduleEnemyTick() {
-      // Defer to next tick + small delay so UI animates between enemy actions.
       setTimeout(() => {
         if (this.state.phase !== 'combat') return;
         this._enemyAct();
         this._broadcastState();
         this._changed();
-      }, 900);
+      }, 1000);
     }
     _enemyAct() {
       const c = this.state.combat;
@@ -542,16 +638,16 @@
       const target = pick(targets);
 
       const dice = [];
-      let hits = 0, dmg = 0;
+      let dmg = 0;
       for (let i = 0; i < def.dice; i++) {
         const v = rollDie();
         dice.push(v);
-        if (v >= def.hitOn) { hits += 1; dmg += def.dmg; }
+        if (v >= def.hitOn) dmg += def.dmg;
       }
       target.hp -= dmg;
-      if (target.hp <= 0) { target.hp = 0; target.alive = false; this._log(`${target.name} πεθαίνει!`); }
-      this.state.lastRoll = { actor: 'e' + e.idx, target: target.id, dice, hits, dmg, hitOn: def.hitOn };
-      this._log(`${e.icon}${e.name} χτυπά ${target.name} για ${dmg}.`);
+      if (target.hp <= 0) { target.hp = 0; target.alive = false; this._log(`${target.name} fell!`); }
+      this.state.lastRoll = { actor: 'e' + e.idx, target: target.id, dice, dmg, hitOn: def.hitOn, ts: Date.now() };
+      this._log(`${e.icon}${e.name} hits ${target.name} for ${dmg}.`);
 
       if (this._alivePlayers().length === 0) { this._endCombatDefeat(); return; }
       c.enemyQueue.shift();
@@ -561,22 +657,19 @@
     _endCombatVictory() {
       const c = this.state.combat;
       const isBoss = c.isBoss;
-      this._log(isBoss ? 'Ο Δράκος έπεσε! Νίκη!' : 'Νικήσατε!');
-      // Loot.
+      this._log(isBoss ? 'The dragon falls! Victory!' : 'Victory!');
       if (!isBoss) {
         const gold = 4 + rand(10);
         const ap = this._activeCombatActor();
-        if (ap) { ap.gold += gold; this._log(`+${gold} χρυσά στον ${ap.name}.`); }
-        if (Math.random() < 0.35) {
+        if (ap) { ap.gold += gold; this._log(`+${gold} gold to ${ap.name}.`); }
+        if (Math.random() < 0.35 && ap) {
           const itm = Math.random() < 0.6 ? 'potion' : 'bomb';
-          const target = ap;
-          const existing = target.items.find(i => i.type === itm);
+          const existing = ap.items.find(i => i.type === itm);
           if (existing) existing.count += 1;
-          else target.items.push({ type: itm, count: 1 });
-          this._log(`${target.name} βρίσκει ${ITEMS[itm].name}.`);
+          else ap.items.push({ type: itm, count: 1 });
+          this._log(`${ap.name} finds ${ITEMS[itm].name}.`);
         }
       }
-      // Clear tile.
       const tile = this._tileAt(c.tileRef.x, c.tileRef.y);
       if (tile) tile.cleared = true;
       this.state.combat = null;
@@ -589,25 +682,23 @@
       }
     }
     _endCombatDefeat() {
-      this._log('Η ομάδα ηττήθηκε…');
+      this._log('The party has fallen…');
       this.state.combat = null;
       this.state.lastRoll = null;
       this.state.phase = 'gameover';
     }
 
     _actRestart() {
-      const names = this.state.players.map(p => ({ id: p.id, name: p.name, isHost: p.isHost }));
-      const log = [];
+      const names = this.state.players.map(p => ({ id: p.id, name: p.name, isHost: p.isHost, isLocal: p.isLocal }));
       this.state = this._initialState();
       this.state.players = names.map(n => ({
-        id: n.id, name: n.name, isHost: n.isHost,
+        id: n.id, name: n.name, isHost: n.isHost, isLocal: n.isLocal,
         classId: null, ready: false, hp: 0, maxHp: 0, gold: 0, items: [], alive: true
       }));
       this.state.phase = 'class-select';
-      this._log('Νέα αναζήτηση ξεκινά.');
+      this._log('A new quest begins.');
     }
 
-    // Convenience for entering class-select from lobby.
     hostStartLobby() {
       if (this.state.phase !== 'lobby') return;
       if (this.state.players.length < 1) return;

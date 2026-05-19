@@ -155,46 +155,48 @@ textarea { width: 100%; min-height: 80px; resize: vertical; word-break: break-al
 
 .class-detail { font-size: 13px; color: #d4c8e8; line-height: 1.4; min-height: 40px; }
 
-/* ============ OVERWORLD ============ */
-.map-wrap {
+/* ============ CANVAS / WORLD ============ */
+.canvas-wrap {
   display: flex;
   justify-content: center;
-  padding: 6px;
-}
-.map {
-  display: grid;
-  gap: 4px;
-  padding: 6px;
-  background: rgba(0,0,0,0.4);
-  border: 1px solid rgba(180,150,220,0.25);
+  background: #050310;
+  border: 1px solid rgba(180, 150, 220, 0.25);
   border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.04);
 }
-.tile {
-  aspect-ratio: 1;
-  border-radius: 6px;
+.world-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+  touch-action: manipulation;
+}
+.world-head {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  background: rgba(20,12,40,0.85);
-  color: #6a5a90;
-  position: relative;
-  border: 1px solid rgba(120,100,160,0.15);
-  transition: background 0.15s, transform 0.1s;
+  justify-content: space-between;
+  gap: 8px;
 }
-.tile.discovered { color: #d4c8e8; background: linear-gradient(180deg, #3d2966, #25184a); border-color: rgba(180,150,220,0.3); }
-.tile.cleared { color: #8c80a8; background: linear-gradient(180deg, #2a1d4a, #1a1238); }
-.tile.boss.discovered { background: linear-gradient(180deg, #7a2222, #4a1010); color: #ffb0b0; border-color: #c66c6c; }
-.tile.party::after {
-  content: "🛡";
-  position: absolute;
-  top: -8px; right: -6px;
-  font-size: 18px;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
+.world-head .small { color: #b8a8d8; font-size: 12px; }
+
+.sprite-icon {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+  flex-shrink: 0;
+  display: block;
 }
-.tile.movable { cursor: pointer; border-color: #ffd770; box-shadow: 0 0 0 2px rgba(255,215,112,0.4); animation: pulse 1.4s infinite; }
-.tile.movable:active { transform: scale(0.95); }
-@keyframes pulse { 0%,100% { box-shadow: 0 0 0 2px rgba(255,215,112,0.4); } 50% { box-shadow: 0 0 0 2px rgba(255,215,112,0.8); } }
+.class-card .sprite-icon { margin: 0 auto 4px; }
+.hero-card .hero-head .sprite-icon { display: inline-block; vertical-align: middle; }
+
+/* ============ MAP (legacy DOM grid — removed) ============ */
+.map-wrap, .map, .tile { display: none !important; }
+
+/* ============ OLD COMBAT (legacy DOM enemy cards — hidden) ============ */
+.enemy-list, .enemy-card { display: none !important; }
 
 /* ============ PLAYER STATUS BAR ============ */
 .party-bar { display: flex; gap: 6px; }
