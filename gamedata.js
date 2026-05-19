@@ -1,5 +1,9 @@
 // Static game data: classes, enemies, items, events, map generation.
 // Pure data + small helpers. No state lives here.
+// Browser global: window.GameData
+(function (root) {
+'use strict';
+var module = { exports: {} };
 
 const CLASSES = {
   knight: {
@@ -285,3 +289,6 @@ module.exports = {
   generateMap, neighborsOffset, tilesWithinRange,
   randomEncounter, generateShopStock,
 };
+
+root.GameData = module.exports;
+})(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
