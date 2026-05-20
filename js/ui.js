@@ -186,28 +186,30 @@
 
       const codePanel = el('div', { class: 'panel' });
       codePanel.appendChild(el('h3', { text: 'Room Code' }));
+      let joinBtn;
       const codeInput = el('input', {
         class: 'code-input',
         attrs: { type: 'tel', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 6, autocomplete: 'off', placeholder: '000000', value: this.joinCodeDraft || '' },
         oninput: (e) => {
           this.joinCodeDraft = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
           e.target.value = this.joinCodeDraft;
+          if (joinBtn) joinBtn.disabled = this.joining || this.joinCodeDraft.length !== 6;
         }
       });
       codePanel.appendChild(codeInput);
       if (this.joinError) {
         codePanel.appendChild(el('p', { class: 'small', style: { color: '#f4a0a0' }, text: this.joinError }));
       }
-      codePanel.appendChild(el('button', {
+      joinBtn = el('button', {
         class: 'btn gold', text: this.joining ? 'Connecting...' : '🔗 Join',
         disabled: this.joining || (this.joinCodeDraft || '').length !== 6,
         onclick: async () => {
+          if (!this.joinCodeDraft || this.joinCodeDraft.length !== 6) return;
           this.joinError = null;
           this.joining = true;
           this.game._changed();
           try {
             await this.net.clientJoinRoom(this.joinCodeDraft, this.heroNameDraft);
-            // After connect, host will push state and overwrite phase.
             this.joining = false;
           } catch (e) {
             this.joining = false;
@@ -215,7 +217,8 @@
             this.game._changed();
           }
         }
-      }));
+      });
+      codePanel.appendChild(joinBtn);
       screen.appendChild(codePanel);
 
       screen.appendChild(el('button', { class: 'btn ghost small', text: '← Back', onclick: () => this._backToMenu() }));
