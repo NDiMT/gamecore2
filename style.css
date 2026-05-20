@@ -192,6 +192,48 @@ textarea { width: 100%; min-height: 80px; resize: vertical; word-break: break-al
 .class-card .sprite-icon { margin: 0 auto 4px; }
 .hero-card .hero-head .sprite-icon { display: inline-block; vertical-align: middle; }
 
+/* ============ ROOM CODE (6-digit) ============ */
+.code-display {
+  font-family: "SFMono-Regular", "Menlo", "Consolas", monospace;
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: #ffd770;
+  text-align: center;
+  padding: 14px 12px;
+  margin: 8px 0 12px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px dashed rgba(255, 215, 112, 0.45);
+  border-radius: 10px;
+  text-shadow: 0 0 12px rgba(255, 215, 112, 0.4);
+}
+.code-display.loading {
+  color: #6a5a90;
+  border-style: dotted;
+  text-shadow: none;
+  animation: pulse-fade 1.2s infinite;
+}
+@keyframes pulse-fade { 0%,100% { opacity: 0.55; } 50% { opacity: 0.9; } }
+.code-input {
+  width: 100%;
+  font-family: "SFMono-Regular", "Menlo", monospace;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-align: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #ffd770;
+  border: 2px solid rgba(255, 215, 112, 0.45);
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+.code-input:focus {
+  outline: none;
+  border-color: #ffd770;
+  box-shadow: 0 0 16px rgba(255, 215, 112, 0.3);
+}
+
 /* ============ MAP (legacy DOM grid — removed) ============ */
 .map-wrap, .map, .tile { display: none !important; }
 

@@ -55,9 +55,7 @@
       const s = this.game.state;
       switch (s.phase) {
         case 'menu':         this._renderMenu(); break;
-        case 'host-setup':   this._renderHostSetup(); break;
         case 'join-setup':   this._renderJoinSetup(); break;
-        case 'join-waiting': this._renderJoinWaiting(); break;
         case 'lobby':        this._renderLobby(); break;
         case 'class-select': this._renderClassSelect(); break;
         case 'overworld':    this._renderOverworld(); break;
@@ -151,94 +149,33 @@
       this.game.hostAddSelf(this.heroNameDraft);
       this.net.onConnect = () => this.render();
       this.net.onDisconnect = () => this.render();
-      this.game.state.phase = 'host-setup';
-      try { this.offerStr = await this.net.hostCreateOffer(); } catch (e) { toast('WebRTC error: ' + e.message); }
+      // Lobby covers both "waiting for room code" and "waiting for players".
+      this.game.state.phase = 'lobby';
+      this.hostingError = null;
       this.game._changed();
+      try {
+        await this.net.hostOpenRoom();
+        this.game._changed();
+      } catch (e) {
+        this.hostingError = e.message || String(e);
+        this.game._changed();
+      }
     }
     _startJoin() {
       this.net.setMode('client');
       this.game.state.phase = 'join-setup';
+      this.joinError = null;
+      this.joinCodeDraft = '';
+      this.joining = false;
       this.game._changed();
     }
 
-    _renderHostSetup() {
-      this.renderer.stop();
-      const screen = el('div', { class: 'screen' });
-      screen.appendChild(el('h1', { class: 'title', text: 'Host a Room' }));
-      screen.appendChild(el('p', { class: 'subtitle', text: 'Share the invite code, then paste your friend\'s answer.' }));
-
-      const offerPanel = el('div', { class: 'panel signaling-block' });
-      offerPanel.appendChild(el('h3', { text: '1) Invite Code' }));
-      offerPanel.appendChild(el('p', { class: 'small', text: 'Send this code to your friend (chat / SMS / email).' }));
-      const offerTa = el('textarea', { readonly: true, attrs: { readonly: 'true' }, value: this.offerStr || '...' });
-      offerPanel.appendChild(offerTa);
-      offerPanel.appendChild(el('button', {
-        class: 'btn gold', text: '📋 Copy code',
-        onclick: async () => {
-          if (!this.offerStr) return;
-          const ok = await copyToClipboard(this.offerStr);
-          toast(ok ? 'Copied!' : 'Copy failed');
-        }
-      }));
-      screen.appendChild(offerPanel);
-
-      const ansPanel = el('div', { class: 'panel signaling-block' });
-      ansPanel.appendChild(el('h3', { text: '2) Answer Code' }));
-      ansPanel.appendChild(el('p', { class: 'small', text: 'When your friend sends back their answer code, paste it here.' }));
-      let pasteVal = '';
-      const pasteTa = el('textarea', { placeholder: 'Paste answer code here...', oninput: (e) => { pasteVal = e.target.value; } });
-      ansPanel.appendChild(pasteTa);
-      ansPanel.appendChild(el('button', {
-        class: 'btn', text: '🔗 Connect Player',
-        onclick: async () => {
-          if (!pasteVal.trim()) { toast('Paste the code first.'); return; }
-          try {
-            await this.net.hostAcceptAnswer(pasteVal);
-            toast('Connecting...');
-          } catch (e) { toast('Error: ' + e.message); }
-        }
-      }));
-      screen.appendChild(ansPanel);
-
-      const playersPanel = el('div', { class: 'panel' });
-      playersPanel.appendChild(el('h3', { text: 'Players (' + this.game.state.players.length + ')' }));
-      const list = el('div', { class: 'player-list' });
-      for (const p of this.game.state.players) {
-        const row = el('div', { class: 'player-row' + (p.id === this.game.myId ? ' me' : '') });
-        row.appendChild(el('span', { text: (p.isHost ? '👑 ' : '🛡 ') + p.name }));
-        if (p.isHost) row.appendChild(el('span', { class: 'badge', text: 'Host' }));
-        list.appendChild(row);
-      }
-      playersPanel.appendChild(list);
-      screen.appendChild(playersPanel);
-
-      const actions = el('div', { class: 'panel' });
-      actions.appendChild(el('button', {
-        class: 'btn ghost', text: '➕ New code for another player',
-        disabled: this.game.state.players.length >= 3,
-        onclick: async () => {
-          try { this.offerStr = await this.net.hostCreateOffer(); this.game._changed(); }
-          catch (e) { toast('Error: ' + e.message); }
-        }
-      }));
-      actions.appendChild(el('div', { style: { height: '8px' } }));
-      actions.appendChild(el('button', {
-        class: 'btn gold', text: '▶ Open Lobby',
-        disabled: this.game.state.players.length < 1,
-        onclick: () => this.game.hostStartLobby()
-      }));
-      actions.appendChild(el('div', { style: { height: '6px' } }));
-      actions.appendChild(el('button', { class: 'btn ghost small', text: '← Back', onclick: () => this._backToMenu() }));
-      screen.appendChild(actions);
-
-      this.root.appendChild(screen);
-    }
 
     _renderJoinSetup() {
       this.renderer.stop();
       const screen = el('div', { class: 'screen' });
       screen.appendChild(el('h1', { class: 'title', text: 'Join a Room' }));
-      screen.appendChild(el('p', { class: 'subtitle', text: 'Paste the invite code you received.' }));
+      screen.appendChild(el('p', { class: 'subtitle', text: 'Enter the 6-digit code from the host.' }));
 
       const namePanel = el('div', { class: 'panel' });
       namePanel.appendChild(el('h3', { text: 'Your Name' }));
@@ -247,49 +184,44 @@
       namePanel.appendChild(nameInput);
       screen.appendChild(namePanel);
 
-      let pasteVal = '';
-      const offerPanel = el('div', { class: 'panel signaling-block' });
-      offerPanel.appendChild(el('h3', { text: '1) Invite Code' }));
-      const offerTa = el('textarea', { placeholder: 'Paste here...', oninput: (e) => { pasteVal = e.target.value; } });
-      offerPanel.appendChild(offerTa);
-      offerPanel.appendChild(el('button', {
-        class: 'btn gold', text: '⚙️ Generate Answer',
+      const codePanel = el('div', { class: 'panel' });
+      codePanel.appendChild(el('h3', { text: 'Room Code' }));
+      const codeInput = el('input', {
+        class: 'code-input',
+        attrs: { type: 'tel', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 6, autocomplete: 'off', placeholder: '000000', value: this.joinCodeDraft || '' },
+        oninput: (e) => {
+          this.joinCodeDraft = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
+          e.target.value = this.joinCodeDraft;
+        }
+      });
+      codePanel.appendChild(codeInput);
+      if (this.joinError) {
+        codePanel.appendChild(el('p', { class: 'small', style: { color: '#f4a0a0' }, text: this.joinError }));
+      }
+      codePanel.appendChild(el('button', {
+        class: 'btn gold', text: this.joining ? 'Connecting...' : '🔗 Join',
+        disabled: this.joining || (this.joinCodeDraft || '').length !== 6,
         onclick: async () => {
-          if (!pasteVal.trim()) { toast('Paste the code first.'); return; }
+          this.joinError = null;
+          this.joining = true;
+          this.game._changed();
           try {
-            const ans = await this.net.clientAcceptOffer(pasteVal, this.heroNameDraft);
-            this.answerStr = ans;
-            this.game.state.phase = 'join-waiting';
+            await this.net.clientJoinRoom(this.joinCodeDraft, this.heroNameDraft);
+            // After connect, host will push state and overwrite phase.
+            this.joining = false;
+          } catch (e) {
+            this.joining = false;
+            this.joinError = e.message || String(e);
             this.game._changed();
-          } catch (e) { toast('Error: ' + e.message); }
+          }
         }
       }));
-      screen.appendChild(offerPanel);
+      screen.appendChild(codePanel);
 
       screen.appendChild(el('button', { class: 'btn ghost small', text: '← Back', onclick: () => this._backToMenu() }));
       this.root.appendChild(screen);
-    }
-
-    _renderJoinWaiting() {
-      this.renderer.stop();
-      const screen = el('div', { class: 'screen' });
-      screen.appendChild(el('h1', { class: 'title', text: 'Answer' }));
-      screen.appendChild(el('p', { class: 'subtitle', text: 'Send this answer to the host. Waiting to connect...' }));
-
-      const panel = el('div', { class: 'panel signaling-block' });
-      panel.appendChild(el('h3', { text: '2) Answer Code' }));
-      const ta = el('textarea', { readonly: true, attrs: { readonly: 'true' }, value: this.answerStr || '...' });
-      panel.appendChild(ta);
-      panel.appendChild(el('button', {
-        class: 'btn gold', text: '📋 Copy',
-        onclick: async () => {
-          const ok = await copyToClipboard(this.answerStr);
-          toast(ok ? 'Copied!' : 'Copy failed.');
-        }
-      }));
-      screen.appendChild(panel);
-      screen.appendChild(el('button', { class: 'btn ghost small', text: '← Back', onclick: () => this._backToMenu() }));
-      this.root.appendChild(screen);
+      // autofocus the code input on mobile keyboards
+      setTimeout(() => { try { codeInput.focus(); } catch (e) {} }, 50);
     }
 
     _backToMenu() {
@@ -301,15 +233,45 @@
       this.game._changed();
     }
 
-    // ---------------- LOBBY -----------------------------------------------
+    // ---------------- LOBBY (host & client) -------------------------------
     _renderLobby() {
       this.renderer.stop();
       const screen = el('div', { class: 'screen' });
-      screen.appendChild(el('h1', { class: 'title', text: 'Lobby' }));
-      screen.appendChild(el('p', { class: 'subtitle', text: 'Waiting for players...' }));
+      const isHost = this.game.isHost && this.net.mode === 'host';
 
-      const panel = el('div', { class: 'panel' });
-      panel.appendChild(el('h3', { text: 'Players' }));
+      screen.appendChild(el('h1', { class: 'title', text: isHost ? 'Host a Room' : 'Connected' }));
+
+      // Code panel — for host show their hosting code; for client show the
+      // code they joined with.
+      const codePanel = el('div', { class: 'panel' });
+      if (isHost) {
+        codePanel.appendChild(el('h3', { text: 'Room Code' }));
+        const code = this.net.hostCode;
+        if (this.hostingError) {
+          codePanel.appendChild(el('p', { class: 'small', style: { color: '#f4a0a0' }, text: 'Could not open a room: ' + this.hostingError }));
+          codePanel.appendChild(el('button', { class: 'btn', text: '↻ Retry', onclick: () => this._startHost() }));
+        } else if (!code) {
+          codePanel.appendChild(el('p', { class: 'small', text: 'Generating room...' }));
+          codePanel.appendChild(el('div', { class: 'code-display loading', text: '------' }));
+        } else {
+          codePanel.appendChild(el('p', { class: 'small', text: 'Share this code with up to 2 friends. They open the app and tap "Join a Room".' }));
+          codePanel.appendChild(el('div', { class: 'code-display', text: code }));
+          codePanel.appendChild(el('button', {
+            class: 'btn gold', text: '📋 Copy code',
+            onclick: async () => {
+              const ok = await copyToClipboard(code);
+              toast(ok ? 'Copied!' : 'Copy failed');
+            }
+          }));
+        }
+      } else {
+        codePanel.appendChild(el('h3', { text: 'Joined' }));
+        codePanel.appendChild(el('p', { class: 'small', text: 'You are in the host\'s room. Waiting for them to start the game.' }));
+      }
+      screen.appendChild(codePanel);
+
+      const playersPanel = el('div', { class: 'panel' });
+      playersPanel.appendChild(el('h3', { text: `Players (${this.game.state.players.length}/3)` }));
       const list = el('div', { class: 'player-list' });
       for (const p of this.game.state.players) {
         const row = el('div', { class: 'player-row' + (p.id === this.game.myId ? ' me' : '') });
@@ -317,13 +279,16 @@
         if (p.isHost) row.appendChild(el('span', { class: 'badge', text: 'Host' }));
         list.appendChild(row);
       }
-      panel.appendChild(list);
-      screen.appendChild(panel);
+      if (isHost && this.game.state.players.length < 2) {
+        list.appendChild(el('div', { class: 'player-row', style: { opacity: 0.5, fontStyle: 'italic' }, text: 'Waiting for players...' }));
+      }
+      playersPanel.appendChild(list);
+      screen.appendChild(playersPanel);
 
-      if (this.game.isHost) {
+      if (isHost) {
         screen.appendChild(el('button', {
           class: 'btn gold', text: '▶ Start Game',
-          disabled: this.game.state.players.length < 1,
+          disabled: this.game.state.players.length < 1 || !this.net.hostCode,
           onclick: () => {
             this.game.state.phase = 'class-select';
             this.game.state.activeIdx = 0;
@@ -331,17 +296,10 @@
             this.game._changed();
           }
         }));
-        screen.appendChild(el('button', {
-          class: 'btn ghost', text: '➕ Add player',
-          disabled: this.game.state.players.length >= 3,
-          onclick: async () => {
-            try { this.offerStr = await this.net.hostCreateOffer(); this.game.state.phase = 'host-setup'; this.game._changed(); }
-            catch (e) { toast('Error: ' + e.message); }
-          }
-        }));
       } else {
         screen.appendChild(el('p', { class: 'small center', text: 'Waiting for the host to start...' }));
       }
+      screen.appendChild(el('button', { class: 'btn ghost small', text: '← Back', onclick: () => this._backToMenu() }));
       this.root.appendChild(screen);
     }
 
