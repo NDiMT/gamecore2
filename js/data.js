@@ -46,13 +46,27 @@
   };
   const CLASS_LIST = ['warrior', 'hunter', 'mage'];
 
+  // Per-class legendary items — rare drops (3% normal, 100% from dragon).
+  // Stack additively: every duplicate gives a smaller cumulative bonus.
+  const CLASS_ITEMS = {
+    warrior: { id: 'sword',  name: 'Steel Sword',  icon: '🗡️', effect: 'bonusDmg',   value: 1, desc: '+1 damage per successful die' },
+    hunter:  { id: 'quiver', name: 'Lucky Quiver', icon: '🎯', effect: 'bonusHit',   value: 1, desc: 'Dice hit at -1 threshold' },
+    mage:    { id: 'tome',   name: 'Arcane Tome',  icon: '📕', effect: 'bonusDice',  value: 1, desc: '+1 attack die' }
+  };
+
   const ENEMIES = {
-    goblin:   { name: 'Goblin',   icon: '👺', maxHp: 8,  dice: 2, hitOn: 4, dmg: 2 },
-    wolf:     { name: 'Wolf',     icon: '🐺', maxHp: 6,  dice: 2, hitOn: 4, dmg: 2 },
-    orc:      { name: 'Orc',      icon: '👹', maxHp: 14, dice: 3, hitOn: 4, dmg: 2 },
-    bandit:   { name: 'Bandit',   icon: '🗡️', maxHp: 10, dice: 2, hitOn: 3, dmg: 2 },
-    skeleton: { name: 'Skeleton', icon: '💀', maxHp: 9,  dice: 2, hitOn: 4, dmg: 2 },
-    dragon:   { name: 'Dragon',   icon: '🐉', maxHp: 50, dice: 5, hitOn: 4, dmg: 3 }
+    goblin:   { name: 'Goblin',   icon: '👺', maxHp: 8,  dice: 2, hitOn: 4, dmg: 2,
+                xp: 5,  loot: { gold: [1, 4],  potion: 0.05, bomb: 0.00 } },
+    wolf:     { name: 'Wolf',     icon: '🐺', maxHp: 6,  dice: 2, hitOn: 4, dmg: 2,
+                xp: 4,  loot: { gold: [1, 3],  potion: 0.03, bomb: 0.00 } },
+    orc:      { name: 'Orc',      icon: '👹', maxHp: 14, dice: 3, hitOn: 4, dmg: 2,
+                xp: 12, loot: { gold: [3, 9],  potion: 0.10, bomb: 0.05 } },
+    bandit:   { name: 'Bandit',   icon: '🗡️', maxHp: 10, dice: 2, hitOn: 3, dmg: 2,
+                xp: 9,  loot: { gold: [5, 12], potion: 0.08, bomb: 0.08 } },
+    skeleton: { name: 'Skeleton', icon: '💀', maxHp: 9,  dice: 2, hitOn: 4, dmg: 2,
+                xp: 7,  loot: { gold: [2, 7],  potion: 0.05, bomb: 0.00 } },
+    dragon:   { name: 'Dragon',   icon: '🐉', maxHp: 50, dice: 5, hitOn: 4, dmg: 3,
+                xp: 80, loot: { gold: [80, 120], potion: 0.6, bomb: 0.6 }, classItemGuaranteed: true }
   };
 
   const ENCOUNTERS = [
@@ -74,10 +88,24 @@
     bomb:   { name: 'Bomb',          icon: '💣', desc: 'Deals 6 damage to every enemy.' }
   };
 
-  // Terrain types — used for the open-world canvas tiles.
-  const TERRAIN_TYPES = ['grass', 'forest', 'hills', 'water', 'path', 'sand'];
+  // XP thresholds for each level. Index = next level's requirement.
+  // i.e. XP_FOR_LEVEL[2] = XP needed to reach level 2.
+  const XP_FOR_LEVEL = [0, 0, 20, 50, 100, 180, 300, 480];
+  const MAX_LEVEL = 7;
 
-  // Features that sit on top of terrain. 'lair' is the boss location.
+  // Quest catalogue. The state picks a few at game start.
+  const QUEST_POOL = [
+    { type: 'kill',     enemy: 'goblin',   count: 3, reward: { gold: 20 },                  text: (q) => `Slay ${q.count} goblins` },
+    { type: 'kill',     enemy: 'wolf',     count: 3, reward: { gold: 20 },                  text: (q) => `Hunt ${q.count} wolves` },
+    { type: 'kill',     enemy: 'orc',      count: 2, reward: { gold: 30, item: 'potion' }, text: (q) => `Defeat ${q.count} orcs` },
+    { type: 'kill',     enemy: 'bandit',   count: 2, reward: { gold: 25, item: 'bomb' },   text: (q) => `Bring ${q.count} bandits to justice` },
+    { type: 'kill',     enemy: 'skeleton', count: 3, reward: { gold: 25 },                 text: (q) => `Banish ${q.count} skeletons` },
+    { type: 'gold',                       count: 60, reward: { item: 'bomb' },             text: (q) => `Collect ${q.count} gold` },
+    { type: 'village',                    count: 2,  reward: { gold: 20, item: 'potion' }, text: (q) => `Visit ${q.count} villages` },
+    { type: 'treasure',                   count: 3,  reward: { gold: 25 },                 text: (q) => `Find ${q.count} treasures` }
+  ];
+
+  const TERRAIN_TYPES = ['grass', 'forest', 'hills', 'water', 'path', 'sand'];
   const FEATURE_NAMES = {
     village: 'Village',
     ruins:   'Ruins',
@@ -85,5 +113,8 @@
     lair:    "Dragon's Lair"
   };
 
-  window.DATA = { CLASSES, CLASS_LIST, ENEMIES, ENCOUNTERS, BOSS_ENCOUNTER, ITEMS, TERRAIN_TYPES, FEATURE_NAMES };
+  window.DATA = {
+    CLASSES, CLASS_LIST, CLASS_ITEMS, ENEMIES, ENCOUNTERS, BOSS_ENCOUNTER,
+    ITEMS, XP_FOR_LEVEL, MAX_LEVEL, QUEST_POOL, TERRAIN_TYPES, FEATURE_NAMES
+  };
 })();

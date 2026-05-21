@@ -29,8 +29,8 @@
         if (s.phase !== 'overworld') return;
         const active = s.players[s.activeIdx];
         if (!active || !this._canControl(active)) return;
-        const dx = Math.abs(x - s.party.x);
-        const dy = Math.abs(y - s.party.y);
+        const dx = Math.abs(x - active.x);
+        const dy = Math.abs(y - active.y);
         if (dx + dy !== 1) return;
         if (tile.terrain === 'water') { toast('Impassable water.'); return; }
         this.net.sendAction({ type: 'move', x, y }, active.id);
@@ -393,7 +393,7 @@
       // Header
       const head = el('div', { class: 'world-head' });
       head.appendChild(el('h2', { text: 'Round ' + s.round, style: { margin: 0, fontSize: '15px', color: '#ffd770' } }));
-      const tile = s.map ? s.map.tiles[s.party.y * s.map.w + s.party.x] : null;
+      const tile = s.map && active ? s.map.tiles[active.y * s.map.w + active.x] : null;
       if (tile) {
         const label = (tile.feature ? window.DATA.FEATURE_NAMES[tile.feature] : tile.terrain.charAt(0).toUpperCase() + tile.terrain.slice(1));
         head.appendChild(el('span', { class: 'small', text: label }));
@@ -430,7 +430,9 @@
         }
       }
 
-      // Log
+      // Quests + Log
+      const qp = this._renderQuestPanel();
+      if (qp) screen.appendChild(qp);
       screen.appendChild(this._renderLog());
     }
 
@@ -439,7 +441,6 @@
       const s = this.game.state;
       for (let i = 0; i < s.players.length; i++) {
         const p = s.players[i];
-        const c = p.classId ? CLASSES[p.classId] : null;
         const cl = ['hero-card'];
         const inCombat = s.phase === 'combat' && s.combat;
         const activeIdx = inCombat ? (s.combat.turn.side === 'players' ? s.combat.turn.idx : -1) : s.activeIdx;
@@ -449,19 +450,61 @@
         const head = el('div', { class: 'hero-head' });
         head.appendChild(this._classIcon(p.classId || 'warrior', 18));
         head.appendChild(el('span', { class: 'hero-name', text: p.name }));
+        head.appendChild(el('span', { class: 'lvl-tag', text: 'L' + (p.level || 1) }));
         card.appendChild(head);
+        // HP bar
         const hpBar = el('div', { class: 'hp-bar' });
         const hpFill = el('div', { class: 'hp-fill' });
         const pct = p.maxHp ? Math.max(0, (p.hp / p.maxHp) * 100) : 0;
         hpFill.style.width = pct + '%';
         hpBar.appendChild(hpFill);
         card.appendChild(hpBar);
-        card.appendChild(el('div', { class: 'hp-text', text: p.hp + '/' + p.maxHp }));
+        card.appendChild(el('div', { class: 'hp-text', text: p.hp + '/' + p.maxHp + ' HP' }));
+        // XP bar
+        const xpBar = el('div', { class: 'xp-bar' });
+        const xpFill = el('div', { class: 'xp-fill' });
+        const xpPct = this._xpProgressPct(p);
+        xpFill.style.width = xpPct + '%';
+        xpBar.appendChild(xpFill);
+        card.appendChild(xpBar);
+        // Bottom info row: gold + items + (class item icon)
+        const info = el('div', { class: 'gold-text' });
         const items = (p.items || []).reduce((a, it) => a + it.count, 0);
-        card.appendChild(el('div', { class: 'gold-text', text: `💰${p.gold} 🎒${items}` }));
+        info.appendChild(el('span', { text: `💰${p.gold} 🎒${items}` }));
+        if (p.classItem && window.DATA.CLASS_ITEMS[p.classId]) {
+          const ci = window.DATA.CLASS_ITEMS[p.classId];
+          info.appendChild(el('span', { class: 'class-item', text: ci.icon + (p.classItemStacks > 1 ? '×' + p.classItemStacks : '') }));
+        }
+        card.appendChild(info);
         bar.appendChild(card);
       }
       return bar;
+    }
+    _xpProgressPct(p) {
+      const lvl = p.level || 1;
+      const max = window.DATA.MAX_LEVEL;
+      if (lvl >= max) return 100;
+      const cur = window.DATA.XP_FOR_LEVEL[lvl] || 0;
+      const nxt = window.DATA.XP_FOR_LEVEL[lvl + 1] || (cur + 100);
+      const span = nxt - cur;
+      if (span <= 0) return 100;
+      return Math.max(0, Math.min(100, ((p.xp - cur) / span) * 100));
+    }
+    _renderQuestPanel() {
+      const s = this.game.state;
+      if (!s.quests || !s.quests.length) return null;
+      const panel = el('div', { class: 'quest-panel' });
+      const head = el('div', { class: 'quest-head', text: '📜 Quests' });
+      panel.appendChild(head);
+      for (const q of s.quests) {
+        const row = el('div', { class: 'quest-row' + (q.complete ? ' done' : '') });
+        const txt = el('span', { class: 'quest-text', text: q.text });
+        const prog = el('span', { class: 'quest-prog', text: q.complete ? '✓' : `${q.progress}/${q.target}` });
+        row.appendChild(txt);
+        row.appendChild(prog);
+        panel.appendChild(row);
+      }
+      return panel;
     }
     _renderLog() {
       const log = el('div', { class: 'log' });

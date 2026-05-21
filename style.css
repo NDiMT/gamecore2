@@ -240,6 +240,62 @@ textarea { width: 100%; min-height: 80px; resize: vertical; word-break: break-al
 /* ============ OLD COMBAT (legacy DOM enemy cards — hidden) ============ */
 .enemy-list, .enemy-card { display: none !important; }
 
+/* ============ LEVEL / XP / CLASS ITEM ============ */
+.lvl-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #ffd770;
+  background: rgba(255, 215, 112, 0.15);
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+.xp-bar {
+  height: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+.xp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ffd770, #d4a04a);
+  transition: width 0.35s;
+}
+.class-item {
+  font-size: 12px;
+  margin-left: 4px;
+  filter: drop-shadow(0 0 4px rgba(255, 215, 112, 0.7));
+}
+
+/* ============ QUEST PANEL ============ */
+.quest-panel {
+  background: rgba(20, 12, 40, 0.7);
+  border: 1px solid rgba(255, 215, 112, 0.3);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.quest-head {
+  font-weight: 700;
+  color: #ffd770;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.quest-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 0;
+  color: #d4c8e8;
+  border-top: 1px solid rgba(180, 150, 220, 0.1);
+}
+.quest-row:first-of-type { border-top: none; }
+.quest-row.done { color: #8c80a8; text-decoration: line-through; }
+.quest-text { flex: 1; }
+.quest-prog { font-weight: 600; color: #ffd770; }
+.quest-row.done .quest-prog { color: #5a7a4a; }
+
 /* ============ PLAYER STATUS BAR ============ */
 .party-bar { display: flex; gap: 6px; }
 .hero-card {

@@ -17,19 +17,19 @@
       this.cv.className = 'world-canvas';
       this.ctx = this.cv.getContext('2d');
       this.scale = 2;
-      this.partyAnim = null;
-      this.lastSeenParty = null;
+      this.activeAnim = null;     // walk-anim state for the currently active player
+      this.lastSeenActive = null; // { id, x, y } snapshot from last sync
       this.facingLeft = false;
       this.lastRollTs = 0;
       this.attackAnimStart = 0;
       this.attackActor = null;
-      this.hitTargets = []; // [{kind:'p'|'e', idx, until}]
+      this.hitTargets = [];
       this.raf = 0;
       this.combatLayout = null;
-      this.onTileTap = null;     // (x, y, tile) => void
-      this.onEnemyTap = null;    // (enemyIdx) => void
-      this.onPartyTap = null;    // (playerIdx) => void (for combat target)
-      this.combatTargetMode = false; // when true, enemy taps fire onEnemyTap
+      this.onTileTap = null;
+      this.onEnemyTap = null;
+      this.onPartyTap = null;
+      this.combatTargetMode = false;
       this._bindEvents();
     }
 
@@ -116,56 +116,58 @@
     }
 
     // ---- WORLD -----------------------------------------------------------
-    _syncPartyAnim() {
+    _syncActiveAnim() {
       const s = this.game.state;
-      if (!s.map) return;
-      const cur = s.party;
-      if (!this.lastSeenParty) {
-        this.lastSeenParty = { x: cur.x, y: cur.y };
-        this.partyAnim = { x: cur.x, y: cur.y, fromX: cur.x, fromY: cur.y, targetX: cur.x, targetY: cur.y, walking: false, startTime: 0 };
+      if (!s.map || !s.players.length) return;
+      const active = s.players[s.activeIdx];
+      if (!active) return;
+      // First-time init OR active player switched → snap (no walk anim).
+      if (!this.lastSeenActive || this.lastSeenActive.id !== active.id) {
+        this.lastSeenActive = { id: active.id, x: active.x, y: active.y };
+        this.activeAnim = { x: active.x, y: active.y, fromX: active.x, fromY: active.y, targetX: active.x, targetY: active.y, walking: false, startTime: 0 };
         return;
       }
-      if (this.lastSeenParty.x !== cur.x || this.lastSeenParty.y !== cur.y) {
-        this.partyAnim.fromX = this.partyAnim.x;
-        this.partyAnim.fromY = this.partyAnim.y;
-        this.partyAnim.targetX = cur.x;
-        this.partyAnim.targetY = cur.y;
-        this.partyAnim.walking = true;
-        this.partyAnim.startTime = performance.now();
-        this.facingLeft = (cur.x - this.lastSeenParty.x) < 0;
-        this.lastSeenParty = { x: cur.x, y: cur.y };
+      // Same player, position changed → animate walk.
+      if (this.lastSeenActive.x !== active.x || this.lastSeenActive.y !== active.y) {
+        this.activeAnim.fromX = this.activeAnim.x;
+        this.activeAnim.fromY = this.activeAnim.y;
+        this.activeAnim.targetX = active.x;
+        this.activeAnim.targetY = active.y;
+        this.activeAnim.walking = true;
+        this.activeAnim.startTime = performance.now();
+        this.facingLeft = (active.x - this.lastSeenActive.x) < 0;
+        this.lastSeenActive = { id: active.id, x: active.x, y: active.y };
       }
     }
     _drawWorld(now) {
-      this._syncPartyAnim();
-      // advance walk anim
-      if (this.partyAnim.walking) {
-        const elapsed = now - this.partyAnim.startTime;
+      this._syncActiveAnim();
+      if (this.activeAnim && this.activeAnim.walking) {
+        const elapsed = now - this.activeAnim.startTime;
         if (elapsed >= WALK_MS) {
-          this.partyAnim.x = this.partyAnim.targetX;
-          this.partyAnim.y = this.partyAnim.targetY;
-          this.partyAnim.walking = false;
+          this.activeAnim.x = this.activeAnim.targetX;
+          this.activeAnim.y = this.activeAnim.targetY;
+          this.activeAnim.walking = false;
         } else {
           const t = elapsed / WALK_MS;
-          // ease-out
           const e = 1 - Math.pow(1 - t, 2);
-          this.partyAnim.x = this.partyAnim.fromX + (this.partyAnim.targetX - this.partyAnim.fromX) * e;
-          this.partyAnim.y = this.partyAnim.fromY + (this.partyAnim.targetY - this.partyAnim.fromY) * e;
+          this.activeAnim.x = this.activeAnim.fromX + (this.activeAnim.targetX - this.activeAnim.fromX) * e;
+          this.activeAnim.y = this.activeAnim.fromY + (this.activeAnim.targetY - this.activeAnim.fromY) * e;
         }
       }
       const s = this.game.state;
       const tp = TILE_SRC * this.scale;
+      const active = s.players[s.activeIdx];
 
-      // camera centred on party
-      let camX = this.partyAnim.x - (VIEW_W / 2) + 0.5;
-      let camY = this.partyAnim.y - (VIEW_H / 2) + 0.5;
+      // Camera centred on the active player's animated position.
+      const focusX = this.activeAnim ? this.activeAnim.x : (active ? active.x : 0);
+      const focusY = this.activeAnim ? this.activeAnim.y : (active ? active.y : 0);
+      let camX = focusX - (VIEW_W / 2) + 0.5;
+      let camY = focusY - (VIEW_H / 2) + 0.5;
       camX = Math.max(0, Math.min(camX, s.map.w - VIEW_W));
       camY = Math.max(0, Math.min(camY, s.map.h - VIEW_H));
       this.camera = { x: camX, y: camY };
 
-      // tiles
-      const x0 = Math.floor(camX);
-      const y0 = Math.floor(camY);
+      const x0 = Math.floor(camX), y0 = Math.floor(camY);
       const x1 = Math.min(s.map.w, x0 + VIEW_W + 2);
       const y1 = Math.min(s.map.h, y0 + VIEW_H + 2);
       for (let y = y0; y < y1; y++) {
@@ -182,23 +184,24 @@
             }
           }
           if (tile.enemies && !tile.cleared && tile.discovered) {
-            // Combat marker — small sword icon on tile corner.
             this._drawSwordMarker(sx + tp * 0.62, sy + tp * 0.05, tp * 0.32);
           }
-          // fog
           if (!tile.discovered) {
-            const adj = (Math.abs(this.partyAnim.x - x) + Math.abs(this.partyAnim.y - y)) <= 1.2;
-            this.ctx.fillStyle = adj ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.7)';
+            // Fog: lighter near any player, darker farther away.
+            let minDist = 99;
+            for (const p of s.players) {
+              if (!p.alive) continue;
+              const d = Math.abs(p.x - x) + Math.abs(p.y - y);
+              if (d < minDist) minDist = d;
+            }
+            this.ctx.fillStyle = (minDist <= 1.2) ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.72)';
             this.ctx.fillRect(sx, sy, tp, tp);
           }
         }
       }
 
-      // movement hints (only if local active player)
       this._drawMoveHints(camX, camY, tp);
-
-      // party token(s)
-      this._drawPartyOnWorld(now, camX, camY, tp);
+      this._drawAllPlayers(now, camX, camY, tp);
     }
 
     _drawSwordMarker(x, y, sz) {
@@ -216,15 +219,13 @@
       if (s.phase !== 'overworld') return;
       const active = s.players[s.activeIdx];
       if (!active) return;
-      // Only highlight when local player can act.
       if (!this._isLocallyControlled(active)) return;
-      const px = s.party.x, py = s.party.y;
+      const px = active.x, py = active.y;
       const neighbours = [[px+1,py],[px-1,py],[px,py+1],[px,py-1]];
       for (const [x, y] of neighbours) {
-        const t = (s.map && s.map.tiles[y * s.map.w + x]);
-        if (!t) continue;
         if (x < 0 || y < 0 || x >= s.map.w || y >= s.map.h) continue;
-        if (t.terrain === 'water') continue;
+        const t = s.map.tiles[y * s.map.w + x];
+        if (!t || t.terrain === 'water') continue;
         const sx = (x - camX) * tp;
         const sy = (y - camY) * tp;
         const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 250);
@@ -243,29 +244,68 @@
       return p.id === this.game.myId;
     }
 
-    _drawPartyOnWorld(now, camX, camY, tp) {
+    _drawAllPlayers(now, camX, camY, tp) {
       const s = this.game.state;
-      const players = s.players.filter(p => p.alive && p.classId);
-      if (!players.length) return;
-      const baseX = (this.partyAnim.x - camX) * tp;
-      const baseY = (this.partyAnim.y - camY) * tp;
-      for (let i = 0; i < players.length; i++) {
-        const p = players[i];
+      // Sort by y so northern characters are drawn first (basic depth sort).
+      const players = s.players.slice().sort((a, b) => (a.y - b.y) || (a.id < b.id ? -1 : 1));
+      for (const p of players) {
+        if (!p.classId) continue;
+        const isActive = (p.id === s.players[s.activeIdx].id);
+        // For the active player, use the smoothly-interpolated walk position;
+        // for everyone else, snap to their tile.
+        const px = isActive && this.activeAnim ? this.activeAnim.x : p.x;
+        const py = isActive && this.activeAnim ? this.activeAnim.y : p.y;
+        const baseX = (px - camX) * tp;
+        const baseY = (py - camY) * tp;
+        const walking = isActive && this.activeAnim && this.activeAnim.walking;
+        const dead = !p.alive || p.hp <= 0;
         const cls = p.classId;
-        const walking = this.partyAnim.walking;
-        const spKey = walking ? cls + '_walk' : cls + '_idle';
+        const spKey = dead ? cls + '_idle' : (walking ? cls + '_walk' : cls + '_idle');
         const sp = window.SPRITES[spKey] || window.SPRITES[cls + '_idle'];
         if (!sp) continue;
         const fIdx = sp.frames.length > 1 ? Math.floor(now / 180) % sp.frames.length : 0;
         const frame = sp.frames[fIdx];
-        // small horizontal offset so the group is visible
-        const offsetX = (i - (players.length - 1) / 2) * tp * 0.18;
-        const offsetY = i * 2 * this.scale;
-        // small idle bob
-        const bob = !walking ? Math.sin((now / 400) + i) * (this.scale * 0.6) : 0;
-        const drawX = baseX + offsetX;
-        const drawY = baseY + offsetY + bob;
-        this._drawSprite(frame, drawX, drawY, tp, this.facingLeft);
+        const bob = (!walking && !dead) ? Math.sin((now / 400) + p.id.charCodeAt(1)) * (this.scale * 0.5) : 0;
+        // Shadow under feet.
+        this.ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        this.ctx.beginPath();
+        this.ctx.ellipse(baseX + tp/2, baseY + tp * 0.92, tp * 0.30, tp * 0.10, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        // Active highlight ring.
+        if (isActive) {
+          const pulse = 0.5 + 0.5 * Math.sin(now / 280);
+          this.ctx.strokeStyle = `rgba(255, 215, 112, ${0.5 + pulse * 0.5})`;
+          this.ctx.lineWidth = 2;
+          this.ctx.beginPath();
+          this.ctx.ellipse(baseX + tp/2, baseY + tp * 0.92, tp * 0.32, tp * 0.11, 0, 0, Math.PI * 2);
+          this.ctx.stroke();
+        }
+        this._drawSprite(frame, baseX, baseY + bob, tp, isActive ? this.facingLeft : false);
+        // Death cross-out.
+        if (dead) {
+          this.ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          this.ctx.fillRect(baseX, baseY, tp, tp);
+          this.ctx.strokeStyle = '#c43b3b';
+          this.ctx.lineWidth = 2;
+          this.ctx.beginPath();
+          this.ctx.moveTo(baseX + 4, baseY + 4);
+          this.ctx.lineTo(baseX + tp - 4, baseY + tp - 4);
+          this.ctx.moveTo(baseX + tp - 4, baseY + 4);
+          this.ctx.lineTo(baseX + 4, baseY + tp - 4);
+          this.ctx.stroke();
+        }
+        // Name label above sprite.
+        if (!dead) {
+          this.ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          this.ctx.font = `${Math.floor(this.scale * 5)}px sans-serif`;
+          const label = p.name + (p.level > 1 ? ' L' + p.level : '');
+          const w = this.ctx.measureText(label).width;
+          this.ctx.fillRect(baseX + tp/2 - w/2 - 2, baseY - 2, w + 4, 9);
+          this.ctx.fillStyle = isActive ? '#ffd770' : '#ffffff';
+          this.ctx.textAlign = 'center';
+          this.ctx.fillText(label, baseX + tp/2, baseY + 5);
+          this.ctx.textAlign = 'left';
+        }
       }
     }
 
