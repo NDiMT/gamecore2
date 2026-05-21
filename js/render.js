@@ -698,9 +698,10 @@
       const dt = Math.min(50, performance.now() - (this._camLastTs || performance.now()));
       this._camLastTs = performance.now();
       const k = 1 - Math.pow(0.001, dt / CAM_LERP_MS); // ease constant per millisecond
+      const targetY = obj ? obj.baseY : 0;
       this.cameraFocus.x += (fx - this.cameraFocus.x) * k;
       this.cameraFocus.z += (fy - this.cameraFocus.z) * k;
-      this.cameraFocus.y += (obj ? obj.baseY : 0) - this.cameraFocus.y * 0; // keep ground-level focus
+      this.cameraFocus.y += (targetY - this.cameraFocus.y) * k;
       const cam = this.camera;
       cam.position.set(
         this.cameraFocus.x + 0,
