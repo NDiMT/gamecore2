@@ -169,9 +169,6 @@ textarea { width: 100%; min-height: 80px; resize: vertical; word-break: break-al
   display: block;
   width: 100%;
   height: auto;
-  image-rendering: pixelated;
-  image-rendering: -moz-crisp-edges;
-  image-rendering: crisp-edges;
   touch-action: manipulation;
 }
 .world-head {
@@ -357,13 +354,16 @@ textarea { width: 100%; min-height: 80px; resize: vertical; word-break: break-al
 .dice-tray {
   display: flex;
   gap: 6px;
-  padding: 10px;
-  background: rgba(0,0,0,0.35);
+  padding: 8px 10px;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255, 215, 112, 0.18);
   border-radius: 10px;
   justify-content: center;
-  min-height: 56px;
   align-items: center;
+  flex-wrap: wrap;
+  min-height: 50px;
 }
+.dice-tray .dmg-tag { color: #ffd770; font-weight: 700; font-size: 14px; }
 .die {
   width: 36px; height: 36px;
   background: linear-gradient(180deg, #f8f0d8, #d4c490);

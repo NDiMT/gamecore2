@@ -506,6 +506,32 @@
       }
       return panel;
     }
+    _renderDiceTray() {
+      const tray = el('div', { class: 'dice-tray' });
+      const lr = this.game.state.lastRoll;
+      if (!lr || !lr.dice || !lr.dice.length) {
+        if (lr && lr.special === 'bomb') {
+          tray.appendChild(el('span', { class: 'dmg-tag', text: `💣 ${lr.dmg} to all` }));
+        } else if (lr && lr.special === 'heal') {
+          tray.appendChild(el('span', { class: 'dmg-tag', text: '🧪 healed' }));
+        } else {
+          tray.appendChild(el('span', { class: 'small', text: 'Awaiting roll...' }));
+        }
+        return tray;
+      }
+      for (const v of lr.dice) {
+        const die = el('div', { class: 'die', text: String(v) });
+        if (lr.hitOn && v >= lr.hitOn) die.classList.add('hit');
+        if (lr.crit && v === lr.crit) die.classList.add('crit');
+        tray.appendChild(die);
+      }
+      if (lr.dmg != null && lr.dmg > 0) {
+        tray.appendChild(el('span', { class: 'dmg-tag', text: `→ ${lr.dmg} dmg` }));
+      } else if (lr.dmg === 0 && lr.dice.length) {
+        tray.appendChild(el('span', { class: 'small', text: '→ miss' }));
+      }
+      return tray;
+    }
     _renderLog() {
       const log = el('div', { class: 'log' });
       const entries = (this.game.state.log || []).slice(-8).reverse();
@@ -553,6 +579,7 @@
       this.renderer.setCombatTargetMode(this.combatTargeting === 'attack');
 
       screen.appendChild(this._renderPartyBar());
+      screen.appendChild(this._renderDiceTray());
 
       const active = (c.turn.side === 'players') ? s.players[c.turn.idx] : null;
       if (active && this._canControl(active)) {
